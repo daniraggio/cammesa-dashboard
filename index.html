@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAMMESA · Dashboard MEM</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+    --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.15);
+    --text: #e6edf3; --muted: #7d8590;
+    --blue: #388bfd; --green: #3fb950; --amber: #d29922;
+    --red: #f85149; --purple: #bc8cff;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; line-height: 1.5; min-height: 100vh; }
+
+  header { border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--bg); z-index: 100; }
+  .logo { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 8px var(--blue); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .hdr-right { display: flex; align-items: center; gap: 14px; }
+  #last-update { font-size: 12px; color: var(--muted); }
+  .btn { background: var(--bg3); border: 1px solid var(--border2); color: var(--text); padding: 5px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: background .15s; }
+  .btn:hover { background: #30363d; }
+
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .date-line { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 20px; }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .mc { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .mc-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+  .mc-val { font-size: 22px; font-weight: 600; letter-spacing: -.5px; line-height: 1.1; }
+  .mc-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .blue{color:var(--blue)} .green{color:var(--green)} .amber{color:var(--amber)} .purple{color:var(--purple)} .red{color:var(--red)}
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid1 { margin-bottom: 16px; }
+  @media(max-width:800px){ .grid2{grid-template-columns:1fr} }
+
+  .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .ph { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; flex-wrap: wrap; }
+  .badge { font-size: 10px; background: var(--bg3); border: 1px solid var(--border2); color: var(--muted); padding: 2px 7px; border-radius: 20px; }
+  .pb { padding: 18px; }
+  .cw { position: relative; width: 100%; height: 240px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); text-align: left; padding: 0 6px 10px; font-weight: 500; border-bottom: 1px solid var(--border); }
+  td { padding: 9px 6px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar-track { flex: 1; height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; min-width: 60px; }
+  .bar-fill { height: 100%; border-radius: 2px; }
+
+  .marg-row { display: grid; grid-template-columns: 44px 1fr auto auto; align-items: center; gap: 10px; padding: 8px 10px; background: var(--bg3); border-radius: 6px; margin-bottom: 6px; }
+  .h-badge { font-size: 11px; color: var(--muted); font-weight: 600; text-align: center; }
+
+  .embalse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .embalse-card { background: var(--bg3); border-radius: 6px; padding: 12px; }
+  .embalse-nombre { font-size: 12px; font-weight: 500; margin-bottom: 8px; }
+  .embalse-stat { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .embalse-stat span:last-child { color: var(--text); font-weight: 500; }
+  .nivel-bar { height: 5px; background: var(--bg2); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .nivel-fill { height: 100%; background: var(--blue); border-radius: 3px; }
+
+  .pert-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .pert-row:last-child { border-bottom: none; }
+  .pert-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 3px; }
+  .pert-nombre { font-weight: 500; font-size: 13px; }
+  .pert-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; white-space: nowrap; }
+  .pill-red { background: rgba(248,81,73,.12); color: var(--red); }
+  .pill-amber { background: rgba(210,153,34,.12); color: var(--amber); }
+
+  .skel { background: linear-gradient(90deg, var(--bg3) 25%, #2d333b 50%, var(--bg3) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; height: 14px; margin-bottom: 8px; }
+  @keyframes shimmer { to{background-position:-200% 0} }
+  .err { color: var(--muted); font-size: 12px; padding: 16px; text-align: center; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+  footer { text-align: center; padding: 24px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 24px; }
+  footer a { color: var(--blue); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="dot"></div>
+    CAMMESA · MEM en tiempo real
+  </div>
+  <div class="hdr-right">
+    <span id="last-update">Cargando...</span>
+    <button class="btn" onclick="loadAll()">↻ Actualizar</button>
+  </div>
+</header>
+
+<main>
+  <div class="date-line" id="date-line">—</div>
+
+  <div class="metrics" id="metrics">
+    <div class="mc"><div class="mc-label">Costo marginal</div><div class="skel" style="width:70%;height:22px;margin-top:4px"></div></div>
+    <div class="mc"><div class="mc-label">Máquina marginal</div><div class="skel" style="width:90%;height:16px;margin-top:8px"></div></div>
+    <div class="mc"><div class="mc-label">Precio mercado PD</div><div class="skel" style="width:70%;height:22px;margin-top:4px"></div></div>
+    <div class="mc"><div class="mc-label">Horas disponibles</div><div class="skel" style="width:40%;height:22px;margin-top:4px"></div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="ph">Costo marginal por hora <span class="badge">$/MWh · hoy</span></div>
+      <div class="pb">
+        <div class="cw"><canvas id="chart-marginal" role="img" aria-label="Costo marginal por hora"></canvas></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">Máquina marginal</div>
+      <div class="pb" style="max-height:290px;overflow-y:auto" id="marginal-list">
+        <div class="skel"></div><div class="skel" style="width:70%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="ph">Costo marginal — mes actual <span class="badge">histórico</span></div>
+      <div class="pb">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div>Promedio diario</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--red);opacity:.6"></div>Máximo</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--blue);opacity:.6"></div>Mínimo</div>
+        </div>
+        <div class="cw"><canvas id="chart-marginal-mes" role="img" aria-label="Costo marginal del mes"></canvas></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">Precios de mercado — Prog. Diaria <span class="badge">$/MWh · hoy</span></div>
+      <div class="pb">
+        <div class="cw"><canvas id="chart-prec-pd" role="img" aria-label="Precios mercado programación diaria"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="ph">Embalses y centrales hidráulicas</div>
+      <div class="pb" id="embalse-content">
+        <div class="skel"></div><div class="skel" style="width:80%"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">Consumo de gas <span class="badge">Mm³/día · mes actual</span></div>
+      <div class="pb">
+        <div class="cw"><canvas id="chart-gas" role="img" aria-label="Consumo de gas"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid1">
+    <div class="panel">
+      <div class="ph">
+        Perturbaciones del SADI
+        <span class="badge" id="pert-count">últimos 7 días</span>
+      </div>
+      <div class="pb" id="pert-content"><div class="skel"></div></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  Datos: <a href="https://api.cammesa.com" target="_blank">API pública CAMMESA</a> ·
+  Actualizado cada 10 min vía GitHub Actions ·
+  <span id="footer-update">—</span>
+</footer>
+
+<script>
+const fmtN = n => n == null ? '—' : Math.round(n).toLocaleString('es-AR');
+const fmtD = s => s ? s.slice(0,10).split('-').reverse().join('/') : '—';
+let charts = {};
+
+async function loadJSON(path) {
+  const r = await fetch(path + '?_=' + Date.now());
+  if (!r.ok) throw new Error(`${path} → HTTP ${r.status}`);
+  return r.json();
+}
+
+function mkChart(id, type, labels, datasets, opts={}) {
+  if (charts[id]) charts[id].destroy();
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  charts[id] = new Chart(ctx, {
+    type,
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: opts.legend ?? false },
+        tooltip: opts.tooltip || {}
+      },
+      scales: {
+        x: {
+          ticks: { color:'#7d8590', font:{size:11}, maxTicksLimit: opts.maxX || 12, maxRotation: 45 },
+          grid: { color:'rgba(255,255,255,0.04)' }
+        },
+        y: {
+          ticks: { color:'#7d8590', font:{size:11}, callback: opts.yFmt || (v => fmtN(v)) },
+          grid: { color:'rgba(255,255,255,0.04)' }
+        }
+      },
+      ...(opts.extra || {})
+    }
+  });
+}
+
+async function renderCostoHoy() {
+  const data = await loadJSON('data/costo_marginal.json');
+  const items = Array.isArray(data) ? data : [data];
+  const det = items[0]?.detalle || [];
+  if (!det.length) { document.getElementById('marginal-list').innerHTML='<div class="err">Sin datos todavía</div>'; return; }
+
+  const ultimo = det[det.length-1];
+  document.getElementById('m-costo').textContent = '$ ' + fmtN(ultimo.costo);
+  document.getElementById('m-maq').textContent = ultimo.maquina || '—';
+  document.getElementById('m-horas').textContent = det.length + ' hs';
+
+  mkChart('chart-marginal', 'bar',
+    det.map(d=>`H${d.hora}`),
+    [{
+      label:'$/MWh',
+      data: det.map(d=>d.costo),
+      backgroundColor: det.map(d => d.costo>300000 ? 'rgba(248,81,73,.75)' : d.costo>150000 ? 'rgba(210,153,34,.75)' : 'rgba(56,139,253,.75)'),
+      borderRadius: 3
+    }],
+    {
+      tooltip: { callbacks:{ label: c=>'$ '+fmtN(c.raw)+'/MWh' } },
+      yFmt: v=>'$'+(v/1000).toFixed(0)+'k'
+    }
+  );
+
+  document.getElementById('marginal-list').innerHTML = det.map(d=>`
+    <div class="marg-row">
+      <div class="h-badge">H${d.hora}</div>
+      <div style="font-size:13px;font-weight:500">${d.maquina||'—'}</div>
+      <div style="font-size:11px;color:var(--muted)">${d.area||''}</div>
+      <div style="font-size:13px;font-weight:600;color:var(--amber)">$${fmtN(d.costo)}</div>
+    </div>`).join('');
+}
+
+async function renderCostoMes() {
+  const data = await loadJSON('data/costo_marginal_mes.json');
+  const items = Array.isArray(data) ? data : [data];
+  if (!items.length) return;
+
+  // Agrupar por fecha → prom/max/min de costo
+  const porFecha = {};
+  items.forEach(item => {
+    const fecha = (item.fecha || '').slice(0,10);
+    if (!fecha) return;
+    const det = item.detalle || [];
+    const costos = det.map(d=>d.costo).filter(Boolean);
+    if (!costos.length) return;
+    porFecha[fecha] = {
+      prom: costos.reduce((s,v)=>s+v,0)/costos.length,
+      max:  Math.max(...costos),
+      min:  Math.min(...costos),
+    };
+  });
+
+  const fechas = Object.keys(porFecha).sort();
+  if (!fechas.length) return;
+
+  mkChart('chart-marginal-mes', 'line',
+    fechas.map(fmtD),
+    [
+      { label:'Promedio', data: fechas.map(f=>porFecha[f].prom), borderColor:'#d29922', backgroundColor:'rgba(210,153,34,.08)', fill:true, tension:.3, pointRadius:3, borderWidth:2 },
+      { label:'Máximo',   data: fechas.map(f=>porFecha[f].max),  borderColor:'rgba(248,81,73,.5)', borderDash:[3,3], fill:false, tension:.3, pointRadius:0, borderWidth:1.5 },
+      { label:'Mínimo',   data: fechas.map(f=>porFecha[f].min),  borderColor:'rgba(56,139,253,.5)', borderDash:[3,3], fill:false, tension:.3, pointRadius:0, borderWidth:1.5 },
+    ],
+    { yFmt: v=>'$'+(v/1000).toFixed(0)+'k', tooltip:{ callbacks:{ label: c=>`${c.dataset.label}: $${fmtN(c.raw)}/MWh` } } }
+  );
+}
+
+async function renderPreciosPD() {
+  const data = await loadJSON('data/precio_mercado_pd.json');
+  const items = Array.isArray(data) ? data : [data];
+  const det = items[0]?.detalle || items[0]?.valores || [];
+  if (!det.length) { document.getElementById('chart-prec-pd').closest('.pb').innerHTML='<div class="err">Sin datos hoy</div>'; return; }
+
+  const ultimo = det[det.length-1];
+  document.getElementById('m-precio-pd').textContent = '$ ' + fmtN(ultimo.precio ?? ultimo.valor ?? ultimo.costo);
+
+  mkChart('chart-prec-pd', 'line',
+    det.map((_,i)=>`H${i+1}`),
+    [{ label:'Precio PD', data: det.map(d=>d.precio??d.valor??d.costo), borderColor:'#3fb950', backgroundColor:'rgba(63,185,80,.08)', fill:true, tension:.3, pointRadius:2, borderWidth:2 }],
+    { yFmt: v=>'$'+(v/1000).toFixed(0)+'k', tooltip:{ callbacks:{ label: c=>'$'+fmtN(c.raw)+'/MWh' } } }
+  );
+}
+
+async function renderEmbalses() {
+  const data = await loadJSON('data/embalses.json');
+  const items = Array.isArray(data) ? data : [data];
+  const centrales = items[0]?.centrales || items[0]?.detalle || items;
+
+  if (!centrales?.length) {
+    document.getElementById('embalse-content').innerHTML='<div class="err">Sin datos disponibles</div>';
+    return;
+  }
+
+  const html = centrales.slice(0,16).map(c => {
+    const nivel   = c.nivelActual ?? c.nivel ?? null;
+    const maximo  = c.nivelMaximo ?? c.maximo ?? null;
+    const volumen = c.volumenActual ?? c.volumen ?? null;
+    const caudal  = c.caudalTurbinado ?? c.caudal ?? null;
+    const pct = (nivel && maximo && maximo > 0) ? Math.min(100, Math.round(nivel/maximo*100)) : null;
+    return `<div class="embalse-card">
+      <div class="embalse-nombre">${c.nombre||c.central||'Central'}</div>
+      ${nivel!=null  ? `<div class="embalse-stat"><span>Nivel</span><span>${nivel.toFixed(2)} m</span></div>` : ''}
+      ${volumen!=null? `<div class="embalse-stat"><span>Volumen</span><span>${fmtN(volumen)} hm³</span></div>` : ''}
+      ${caudal!=null ? `<div class="embalse-stat"><span>Caudal turb.</span><span>${fmtN(caudal)} m³/s</span></div>` : ''}
+      ${pct!=null    ? `<div class="nivel-bar"><div class="nivel-fill" style="width:${pct}%"></div></div>` : ''}
+    </div>`;
+  }).join('');
+
+  document.getElementById('embalse-content').innerHTML = `<div class="embalse-grid">${html}</div>`;
+}
+
+async function renderGas() {
+  const data = await loadJSON('data/consumo_gas.json');
+  const items = Array.isArray(data) ? data : [data];
+  if (!items.length) return;
+
+  const serie = items.map(it => ({
+    fecha: (it.fecha||it.fechadesde||'').slice(0,10),
+    valor: it.totalConsumo ?? it.consumoTotal ?? it.valor ?? (it.detalle||[]).reduce((s,d)=>s+(d.valor??d.consumo??0),0)
+  })).filter(x=>x.fecha && x.valor).sort((a,b)=>a.fecha.localeCompare(b.fecha));
+
+  if (!serie.length) return;
+
+  mkChart('chart-gas','line',
+    serie.map(s=>fmtD(s.fecha)),
+    [{ label:'Gas', data: serie.map(s=>s.valor), borderColor:'#d29922', backgroundColor:'rgba(210,153,34,.08)', fill:true, tension:.3, pointRadius:3, borderWidth:2 }],
+    { yFmt: v=>v.toFixed(1)+' Mm³', tooltip:{ callbacks:{ label: c=>c.raw.toFixed(2)+' Mm³/día' } } }
+  );
+}
+
+async function renderPerturbaciones() {
+  const data = await loadJSON('data/perturbaciones.json');
+  const items = Array.isArray(data) ? data : (data.perturbaciones ? data.perturbaciones : [data]);
+
+  document.getElementById('pert-count').textContent = `${items.length} · últimos 7 días`;
+
+  if (!items.length) {
+    document.getElementById('pert-content').innerHTML='<div class="err">Sin perturbaciones registradas</div>';
+    return;
+  }
+
+  document.getElementById('pert-content').innerHTML = items.slice(0,20).map(p => {
+    const sev = p.severidad||p.tipo||'';
+    const sevClass = /mayor|grave|severa/i.test(sev) ? 'pill-red' : 'pill-amber';
+    return `<div class="pert-row">
+      <div class="pert-top">
+        <div class="pert-nombre">${p.nombre||p.descripcion||'Perturbación'}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+          ${sev?`<span class="pill ${sevClass}">${sev}</span>`:''}
+          <span style="font-size:11px;color:var(--muted)">${fmtD(p.fecha||p.fechaInicio||'')}</span>
+        </div>
+      </div>
+      ${p.detalle||p.comentario ? `<div class="pert-desc">${p.detalle||p.comentario}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function loadAll() {
+  const now = new Date();
+  document.getElementById('date-line').textContent =
+    `Hoy · ${now.toLocaleDateString('es-AR',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}`;
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="mc"><div class="mc-label">Costo marginal actual</div><div class="mc-val amber" id="m-costo">—</div></div>
+    <div class="mc"><div class="mc-label">Máquina marginal</div><div class="mc-val" id="m-maq" style="font-size:15px">—</div></div>
+    <div class="mc"><div class="mc-label">Precio mercado PD</div><div class="mc-val green" id="m-precio-pd">—</div></div>
+    <div class="mc"><div class="mc-label">Horas cargadas hoy</div><div class="mc-val blue" id="m-horas">—</div></div>`;
+
+  // Leer metadata de última actualización del workflow
+  try {
+    const meta = await loadJSON('data/meta.json');
+    if (meta.updated) {
+      const upd = new Date(meta.updated);
+      document.getElementById('last-update').textContent =
+        `Datos: ${upd.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}`;
+      document.getElementById('footer-update').textContent =
+        `Última actualización API: ${upd.toLocaleString('es-AR')}`;
+    }
+  } catch(e) {
+    document.getElementById('last-update').textContent = 'Sin metadata';
+  }
+
+  const results = await Promise.allSettled([
+    renderCostoHoy(),
+    renderCostoMes(),
+    renderPreciosPD(),
+    renderEmbalses(),
+    renderGas(),
+    renderPerturbaciones(),
+  ]);
+
+  results.forEach((r,i) => {
+    if (r.status==='rejected') console.warn(`Sección ${i}:`, r.reason?.message || r.reason);
+  });
+}
+
+loadAll();
+// Recargar cada 11 minutos (el workflow corre cada 10)
+setInterval(loadAll, 11 * 60 * 1000);
+</script>
+</body>
+</html>

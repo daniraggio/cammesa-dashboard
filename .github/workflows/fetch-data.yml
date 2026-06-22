@@ -1,0 +1,81 @@
+name: Fetch CAMMESA Data
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # cada 10 minutos
+  workflow_dispatch:           # permite correrlo manualmente
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch data from CAMMESA API
+        run: |
+          TODAY=$(TZ="America/Argentina/Buenos_Aires" date +%Y-%m-%d)
+          MONTH_START="${TODAY:0:7}-01"
+
+          echo "Fetching data for $TODAY"
+
+          # Costo marginal - hoy
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/costoMarginal?fechadesde=${TODAY}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/costo_marginal.json || echo '[]' > data/costo_marginal.json
+
+          # Precios mercado programación diaria - hoy
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/precioMercadoPD?fechadesde=${TODAY}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/precio_mercado_pd.json || echo '[]' > data/precio_mercado_pd.json
+
+          # Precios mercado definitivos - mes actual
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/precioMercadoDef?fechadesde=${MONTH_START}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/precio_mercado_def.json || echo '[]' > data/precio_mercado_def.json
+
+          # Embalses y centrales hidráulicas - hoy
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/cuencasDatosHidraulicos?fechadesde=${TODAY}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/embalses.json || echo '[]' > data/embalses.json
+
+          # Consumo de gas - mes actual
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/consumoGas?fechadesde=${MONTH_START}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/consumo_gas.json || echo '[]' > data/consumo_gas.json
+
+          # Perturbaciones SADI - últimos 7 días
+          WEEK_AGO=$(TZ="America/Argentina/Buenos_Aires" date -d "7 days ago" +%Y-%m-%d)
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/perturbacionesSadiTodas?fechadesde=${WEEK_AGO}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/perturbaciones.json || echo '[]' > data/perturbaciones.json
+
+          # Costos marginales operados - mes actual (histórico)
+          curl -sf \
+            "https://api.cammesa.com/pub-svc/public/especial/costoMarginal?fechadesde=${MONTH_START}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            -H "Accept: application/json" \
+            -o data/costo_marginal_mes.json || echo '[]' > data/costo_marginal_mes.json
+
+          # Metadata: timestamp de última actualización
+          echo "{\"updated\": \"$(TZ="America/Argentina/Buenos_Aires" date -Iseconds)\", \"today\": \"$TODAY\"}" \
+            > data/meta.json
+
+          echo "Done. Files:"
+          ls -lh data/
+
+      - name: Commit data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || git commit -m "data: update $(TZ='America/Argentina/Buenos_Aires' date '+%H:%M %Z')"
+          git push
