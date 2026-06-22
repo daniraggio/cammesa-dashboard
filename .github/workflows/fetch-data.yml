@@ -2,8 +2,8 @@ name: Fetch CAMMESA Data
 
 on:
   schedule:
-    - cron: '*/10 * * * *'   # cada 10 minutos
-  workflow_dispatch:           # permite correrlo manualmente
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
 
 jobs:
   fetch:
@@ -19,57 +19,124 @@ jobs:
         run: |
           TODAY=$(TZ="America/Argentina/Buenos_Aires" date +%Y-%m-%d)
           MONTH_START="${TODAY:0:7}-01"
+          WEEK_AGO=$(TZ="America/Argentina/Buenos_Aires" date -d "7 days ago" +%Y-%m-%d)
 
-          echo "Fetching data for $TODAY"
+          echo "Fetching data for $TODAY (month from $MONTH_START)"
 
-          # Costo marginal - hoy
+          # ── Costo marginal hoy ──────────────────────────────────────────
           curl -sf \
             "https://api.cammesa.com/pub-svc/public/especial/costoMarginal?fechadesde=${TODAY}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
             -H "Accept: application/json" \
             -o data/costo_marginal.json || echo '[]' > data/costo_marginal.json
 
-          # Precios mercado programación diaria - hoy
-          curl -sf \
-            "https://api.cammesa.com/pub-svc/public/especial/precioMercadoPD?fechadesde=${TODAY}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
-            -H "Accept: application/json" \
-            -o data/precio_mercado_pd.json || echo '[]' > data/precio_mercado_pd.json
-
-          # Precios mercado definitivos - mes actual
-          curl -sf \
-            "https://api.cammesa.com/pub-svc/public/especial/precioMercadoDef?fechadesde=${MONTH_START}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
-            -H "Accept: application/json" \
-            -o data/precio_mercado_def.json || echo '[]' > data/precio_mercado_def.json
-
-          # Embalses y centrales hidráulicas - hoy
+          # ── Embalses hoy ────────────────────────────────────────────────
           curl -sf \
             "https://api.cammesa.com/pub-svc/public/especial/cuencasDatosHidraulicos?fechadesde=${TODAY}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
             -H "Accept: application/json" \
             -o data/embalses.json || echo '[]' > data/embalses.json
 
-          # Consumo de gas - mes actual
+          # ── Perturbaciones últimos 7 días (máx 5 días por request) ─────
+          # Primer tramo: hace 7 días → hace 3 días
+          D1_FROM=$WEEK_AGO
+          D1_TO=$(TZ="America/Argentina/Buenos_Aires" date -d "3 days ago" +%Y-%m-%d)
           curl -sf \
-            "https://api.cammesa.com/pub-svc/public/especial/consumoGas?fechadesde=${MONTH_START}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            "https://api.cammesa.com/pub-svc/public/especial/perturbacionesSadiTodas?fechadesde=${D1_FROM}T00:00:00.000-03:00&fechahasta=${D1_TO}T23:59:59.000-03:00" \
             -H "Accept: application/json" \
-            -o data/consumo_gas.json || echo '[]' > data/consumo_gas.json
+            -o data/pert_part1.json || echo '[]' > data/pert_part1.json
 
-          # Perturbaciones SADI - últimos 7 días
-          WEEK_AGO=$(TZ="America/Argentina/Buenos_Aires" date -d "7 days ago" +%Y-%m-%d)
+          # Segundo tramo: hace 3 días → hoy
+          D2_FROM=$(TZ="America/Argentina/Buenos_Aires" date -d "2 days ago" +%Y-%m-%d)
           curl -sf \
-            "https://api.cammesa.com/pub-svc/public/especial/perturbacionesSadiTodas?fechadesde=${WEEK_AGO}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
+            "https://api.cammesa.com/pub-svc/public/especial/perturbacionesSadiTodas?fechadesde=${D2_FROM}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
             -H "Accept: application/json" \
-            -o data/perturbaciones.json || echo '[]' > data/perturbaciones.json
+            -o data/pert_part2.json || echo '[]' > data/pert_part2.json
 
-          # Costos marginales operados - mes actual (histórico)
-          curl -sf \
-            "https://api.cammesa.com/pub-svc/public/especial/costoMarginal?fechadesde=${MONTH_START}T00:00:00.000-03:00&fechahasta=${TODAY}T23:59:59.000-03:00" \
-            -H "Accept: application/json" \
-            -o data/costo_marginal_mes.json || echo '[]' > data/costo_marginal_mes.json
+          # Combinar ambas partes en un solo JSON array
+          python3 -c "
+          import json
+          p1 = json.load(open('data/pert_part1.json'))
+          p2 = json.load(open('data/pert_part2.json'))
+          if not isinstance(p1, list): p1 = []
+          if not isinstance(p2, list): p2 = []
+          combined = p1 + p2
+          json.dump(combined, open('data/perturbaciones.json','w'), ensure_ascii=False)
+          print(f'Perturbaciones: {len(combined)} registros')
+          "
 
-          # Metadata: timestamp de última actualización
+          # ── Costo marginal del mes — de a 5 días ───────────────────────
+          python3 << 'PYEOF'
+          import subprocess, json, datetime
+
+          today     = datetime.date.today()
+          month_start = today.replace(day=1)
+          all_items = []
+          chunk_start = month_start
+
+          while chunk_start <= today:
+              chunk_end = min(chunk_start + datetime.timedelta(days=4), today)
+              url = (
+                  f"https://api.cammesa.com/pub-svc/public/especial/costoMarginal"
+                  f"?fechadesde={chunk_start}T00:00:00.000-03:00"
+                  f"&fechahasta={chunk_end}T23:59:59.000-03:00"
+              )
+              result = subprocess.run(
+                  ["curl", "-sf", "-H", "Accept: application/json", url],
+                  capture_output=True, text=True
+              )
+              try:
+                  data = json.loads(result.stdout)
+                  if isinstance(data, list):
+                      all_items.extend(data)
+                      print(f"  {chunk_start} → {chunk_end}: {len(data)} días")
+                  else:
+                      print(f"  {chunk_start} → {chunk_end}: error {data}")
+              except Exception as e:
+                  print(f"  {chunk_start} → {chunk_end}: parse error {e}")
+              chunk_start = chunk_end + datetime.timedelta(days=1)
+
+          with open("data/costo_marginal_mes.json", "w") as f:
+              json.dump(all_items, f, ensure_ascii=False)
+          print(f"Total costo marginal mes: {len(all_items)} registros")
+          PYEOF
+
+          # ── Consumo de gas del mes — de a 5 días ───────────────────────
+          python3 << 'PYEOF'
+          import subprocess, json, datetime
+
+          today       = datetime.date.today()
+          month_start = today.replace(day=1)
+          all_items   = []
+          chunk_start = month_start
+
+          while chunk_start <= today:
+              chunk_end = min(chunk_start + datetime.timedelta(days=4), today)
+              url = (
+                  f"https://api.cammesa.com/pub-svc/public/especial/consumoGas"
+                  f"?fechadesde={chunk_start}T00:00:00.000-03:00"
+                  f"&fechahasta={chunk_end}T23:59:59.000-03:00"
+              )
+              result = subprocess.run(
+                  ["curl", "-sf", "-H", "Accept: application/json", url],
+                  capture_output=True, text=True
+              )
+              try:
+                  data = json.loads(result.stdout)
+                  if isinstance(data, list):
+                      all_items.extend(data)
+              except:
+                  pass
+              chunk_start = chunk_end + datetime.timedelta(days=1)
+
+          with open("data/consumo_gas.json", "w") as f:
+              json.dump(all_items, f, ensure_ascii=False)
+          print(f"Total consumo gas mes: {len(all_items)} registros")
+          PYEOF
+
+          # ── Metadata ────────────────────────────────────────────────────
           echo "{\"updated\": \"$(TZ="America/Argentina/Buenos_Aires" date -Iseconds)\", \"today\": \"$TODAY\"}" \
             > data/meta.json
 
-          echo "Done. Files:"
+          echo "Done."
           ls -lh data/
 
       - name: Commit data
