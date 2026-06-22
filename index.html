@@ -225,11 +225,11 @@ async function apiFetch(url) {
 
 async function loadJSON(path) {
   try {
-    const r = await fetch(path + '?_=' + Date.now());
+    const BASE = 'https://daniraggio.github.io/cammesa-dashboard/';
+    const r = await fetch(BASE + path + '?_=' + Date.now());
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     return r.json();
   } catch(e) {
-    // Falla silenciosa cuando se abre como file:// (sin GitHub Pages)
     throw e;
   }
 }
