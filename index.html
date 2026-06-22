@@ -257,17 +257,12 @@ function mkChart(id, type, labels, datasets, opts={}) {
 async function renderCostoHoy() {
   const t = selectedDate;
 
-  // Fetch real y previsto en paralelo
-  const [dataReal, dataPrev] = await Promise.allSettled([
-    apiFetch(`https://api.cammesa.com/pub-svc/public/especial/costoMarginal`
-      + `?fechadesde=${encodeURIComponent(t+'T00:00:00.000-03:00')}`
-      + `&fechahasta=${encodeURIComponent(t+'T23:59:59.000-03:00')}`),
-    apiFetch(`https://api.cammesa.com/pub-svc/public/especial/precioMercadoPD`
-      + `?fechadesde=${encodeURIComponent(t+'T00:00:00.000-03:00')}`
-      + `&fechahasta=${encodeURIComponent(t+'T23:59:59.000-03:00')}`)
-  ]);
+  // Fetch costo marginal real
+  const dataReal = await apiFetch(`https://api.cammesa.com/pub-svc/public/especial/costoMarginal`
+    + `?fechadesde=${encodeURIComponent(t+'T00:00:00.000-03:00')}`
+    + `&fechahasta=${encodeURIComponent(t+'T23:59:59.000-03:00')}`).catch(()=>null);
 
-  const itemsReal = dataReal.status==='fulfilled' ? (Array.isArray(dataReal.value)?dataReal.value:[dataReal.value]) : [];
+  const itemsReal = dataReal ? (Array.isArray(dataReal)?dataReal:[dataReal]) : [];
   const det = itemsReal[0]?.detalle || [];
 
   document.getElementById('badge-marginal').textContent = '$/MWh · ' + fmtD(t);
@@ -287,54 +282,24 @@ async function renderCostoHoy() {
   document.getElementById('m-horas').textContent = det.length + ' hs';
   document.getElementById('m-prom').textContent  = '$ ' + fmtN(prom);
 
-  // Serie prevista — puede venir en detalle o en valores según la API
-  let costoPrev = [];
-  if (dataPrev.status==='fulfilled') {
-    const itemsPrev = Array.isArray(dataPrev.value) ? dataPrev.value : [dataPrev.value];
-    const detPrev = itemsPrev[0]?.detalle || itemsPrev[0]?.valores || [];
-    // Mapear a 24 horas; el campo puede ser precio, valor o costo
-    costoPrev = detPrev.map(d => d.precio ?? d.valor ?? d.costo ?? null);
-  }
-
-  // Horas del eje X: usar las 24 siempre
+  // Horas del eje X: 24 horas fijas
   const labels = Array.from({length:24}, (_,i)=>`${i+1}`);
-  // Real: solo las horas disponibles, el resto null
   const serieReal = labels.map((_,i) => det[i]?.costo ?? null);
 
-  const datasets = [
-    {
-      label: 'Costo Marginal Real',
-      data: serieReal,
-      borderColor: '#c0392b',
-      backgroundColor: 'rgba(192,57,43,0.08)',
-      fill: true,
-      tension: 0,
-      pointRadius: 5,
-      pointBackgroundColor: '#c0392b',
-      pointBorderColor: '#fff',
-      pointBorderWidth: 1.5,
-      borderWidth: 2,
-      spanGaps: false,
-    }
-  ];
-
-  if (costoPrev.length) {
-    datasets.push({
-      label: 'Costo Marginal Previsto',
-      data: costoPrev.slice(0,24).map((v,i) => v ?? null),
-      borderColor: '#9b59b6',
-      backgroundColor: 'transparent',
-      fill: false,
-      tension: 0,
-      pointRadius: 5,
-      pointBackgroundColor: '#9b59b6',
-      pointBorderColor: '#fff',
-      pointBorderWidth: 1.5,
-      borderWidth: 2,
-      borderDash: [],
-      spanGaps: false,
-    });
-  }
+  const datasets = [{
+    label: 'Costo Marginal Real',
+    data: serieReal,
+    borderColor: '#c0392b',
+    backgroundColor: 'rgba(192,57,43,0.08)',
+    fill: true,
+    tension: 0,
+    pointRadius: 5,
+    pointBackgroundColor: '#c0392b',
+    pointBorderColor: '#fff',
+    pointBorderWidth: 1.5,
+    borderWidth: 2,
+    spanGaps: false,
+  }];
 
   if (charts['chart-marginal']) charts['chart-marginal'].destroy();
   const ctx = document.getElementById('chart-marginal');
@@ -344,12 +309,8 @@ async function renderCostoHoy() {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: {
-          display: true,
-          position: 'bottom',
-          labels: { color:'#7d8590', font:{size:12}, usePointStyle:true, pointStyleWidth:10, padding:20 }
-        },
-        tooltip: { callbacks: { label: c=>`${c.dataset.label}: $${fmtN(c.raw)}/MWh` } }
+        legend: { display: false },
+        tooltip: { callbacks: { label: c=>`$${fmtN(c.raw)}/MWh` } }
       },
       scales: {
         x: { ticks:{color:'#7d8590',font:{size:11}}, grid:{color:'rgba(255,255,255,0.04)'} },
@@ -515,44 +476,35 @@ async function renderPerturbaciones() {
   try { data = await apiFetch(url); }
   catch(e) { document.getElementById('pert-content').innerHTML='<div class="err">Sin conexión</div>'; return; }
 
-  // La API puede devolver array de objetos con campos variables
-  // Inspeccionamos el primer item para entender la estructura
-  const items = Array.isArray(data) ? data : (data.perturbaciones ?? [data]);
+  const items = Array.isArray(data) ? data : [];
   document.getElementById('pert-count').textContent = `${items.length} · 7 días hasta ${fmtD(t)}`;
 
   if (!items.length) {
-    document.getElementById('pert-content').innerHTML='<div class="err">Sin perturbaciones registradas</div>';
+    document.getElementById('pert-content').innerHTML='<div class="err">Sin perturbaciones en este período</div>';
     return;
   }
 
-  // Ordenar más reciente primero usando todos los campos de fecha posibles
+  // Ordenar por fechaFalla desc, luego por hora extraída de descripcion desc
   const sorted = [...items].sort((a,b) => {
-    const fa = a.fecha || a.fechaInicio || a.fechaEdicion || '';
-    const fb = b.fecha || b.fechaInicio || b.fechaEdicion || '';
+    const fa = (a.fechaFalla||'') + (a.descripcion||'').slice(0,5);
+    const fb = (b.fechaFalla||'') + (b.descripcion||'').slice(0,5);
     return fb.localeCompare(fa);
   });
 
   document.getElementById('pert-content').innerHTML = sorted.map(p => {
-    // Extraer tipo/severidad de todos los campos posibles
-    const tipo = p.tipo || p.severidad || p.tipoEvento || '';
-    const esFalla = /falla/i.test(tipo);
+    const tipo     = p.tipo || '';
+    const esFalla  = /falla/i.test(tipo) && !/normal/i.test(tipo);
     const esNormal = /normal/i.test(tipo);
     const pillClass = esFalla ? 'pill-red' : esNormal ? 'pill-blue' : 'pill-amber';
 
-    // Fecha del evento — puede venir en varios campos
-    const fechaRaw = p.fecha || p.fechaInicio || p.fechaEdicion || '';
-    const fechaDia = fechaRaw.slice(0,10);   // "2026-06-18"
-    const fechaHora = fechaRaw.slice(11,16); // "04:21"
+    // Fecha: viene en fechaFalla → "2026-06-15"
+    const fechaDia = p.fechaFalla || '';
 
-    // La descripción puede venir en distintos campos
-    // A veces el texto completo incluye la hora al inicio: "04:21 - Transpa: ..."
-    const desc = p.descripcion || p.detalle || p.comentario || p.nombre || p.titulo || '';
-
-    // Si la descripción ya incluye la hora al inicio, la extraemos para no repetirla
-    const horaMatch = desc.match(/^(\d{1,2}:\d{2})\s*[-–]/);
-    const horaDisplay = horaMatch ? horaMatch[1] : fechaHora;
-    // Texto limpio: sacar la hora del inicio si ya está ahí
-    const textoLimpio = horaMatch ? desc.replace(/^\d{1,2}:\d{2}\s*[-–]\s*/, '') : desc;
+    // Hora: embebida al inicio de descripcion → "08:46 - Transpa: ..."
+    const desc = p.descripcion || '';
+    const horaMatch = desc.match(/^(\d{1,2}:\d{2})\s*[-–]\s*/);
+    const horaDisplay  = horaMatch ? horaMatch[1] : '';
+    const textoLimpio  = horaMatch ? desc.slice(horaMatch[0].length) : desc;
 
     return `<div class="pert-row">
       <div class="pert-top">
